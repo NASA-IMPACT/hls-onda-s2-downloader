@@ -1,0 +1,6 @@
+May 18, 2021
+Brian Freitag
+
+This is a simple script that leverages OndaDIAS to access historical Sentinel-2 data. Currently, the script is configured to take a list of input S2 file names and download them via https. OndaDIAS requires authentication to download the data via the API. User authentication along with additional parameters are configured in the `query_params.json` file. In addition to user authentication, max requests and time lag parameters are set relative to restrictions of OndaDIAS. By default these values are set to 20 API requests per hour and a 15 minute lag between the time when a granule is restored and when the download is tried. There is an option to push data to s3 where additional parameters are included such as the default aws profile for the boto session, the target bucket and upload role arn and role name. Within the API, API limitations imposed by OndaDIAS and orchestration of the queries, downloads, and uploads are handled in the `request_manager` method. Prior to files being downloaded and removed from the download list, file sizes are compared in the local directory with file metadata provided by OndaDIAS.
+
+Additional utilities are included for moving existing files in the downloads directory to s3 and checking the total volume downloaded leveraging file sizes reported by the API.

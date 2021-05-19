@@ -1,0 +1,17 @@
+{
+  "auth": {
+    "username": "<onda-username>",
+    "password": "<onda-password>"
+  },
+  "data_path": "data/missing_files.txt",
+  "output_directory": "downloads",
+  "max_requests": 20,
+  "time_lag_in_minutes": 15,
+  "push_to_s3": true,
+  "aws": {
+    "aws_profile": "<aws-profile>",
+    "target_s3_bucket": "<s3-bucket-name>",
+    "upload_role_arn": "<aws-role-arn>",
+    "upload_role_name": "<aws-role-name>"
+  }
+}
