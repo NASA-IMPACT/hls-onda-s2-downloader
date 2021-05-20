@@ -29,6 +29,14 @@ downloaded = glob.glob(f"../{params['output_directory']}/*.zip")
 base_url = "https://catalogue.onda-dias.eu/dias-catalogue/Products"
 granule_url = base_url + '?$search="name:{}"'
 
+with open("params.json", "r") as f:
+    list_params = json.load(f)
+
+with open(list_params["new_list"], "r") as f:
+    filelist = sorted([x.strip("\n") for x in f.readlines()])
+
+print(len(filelist))
+
 for dl in downloaded:
     fname = dl.split("/")[-1]
     query_url = granule_url.format(fname)
@@ -47,6 +55,10 @@ for dl in downloaded:
                        )
               )
         s3.upload_file(dl, target_bucket, key)
+        if fname.strip(".zip") in filelist:
+            filelist.remove(fname.strip(".zip"))
+        else:
+            print(f"{fname.strip('.zip')} not in input file list")
         os.remove(dl)
     else:
         print(" ".join([f"File: {results['name']}",
@@ -57,3 +69,7 @@ for dl in downloaded:
                         ]
                        )
               )
+print(len(filelist))
+
+with open(list_params["new_list"], "w") as f:
+    f.writelines("%s\n" % file for file in filelist)
