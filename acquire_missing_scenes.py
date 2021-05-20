@@ -5,7 +5,7 @@ import os
 import requests
 import time
 
-from multiprocessing import Pool
+from multiprocessing import Manager, Pool
 
 
 class queryOnda():
@@ -24,6 +24,7 @@ class queryOnda():
     def get_filelist(self):
         with open(self.params["data_path"], "r") as f:
             self.filelist = sorted([x.strip("\n") for x in f.readlines()])
+            self.filelist = Manager().list(self.filelist)
 
     def configure_url(self):
         base_url = "https://catalogue.onda-dias.eu/dias-catalogue/Products"
@@ -36,10 +37,9 @@ class queryOnda():
     def query_api(self):
         self.count = 0
         self.pids = []
-        self.downloaded = []
+        self.downloaded = Manager().list()
         for file in self.filelist:
-            self.count += 1
-            if self.count <= self.params["max_requests"]:
+            if self.count < self.params["max_requests"]:
                 query_url = self.granule_url.format(file)
                 r = requests.get(query_url)
                 results = json.loads(r.content)["value"][0]
@@ -48,15 +48,14 @@ class queryOnda():
                 if os.path.exists(local_filename):
                     expected_size = results["size"]/(1024*1024)
                     actual_size = os.stat(local_filename).st_size/(1024*1024)
+                    self.count -= 1
                     if actual_size == expected_size:
                         print(" ".join([f"{results['name']} has already",
                                         "been downloaded! Starting next file."
                                         ]
                                        )
                               )
-                        self.filelist.remove(file)
                         self.downloaded.append(local_filename)
-                        self.count -= 1
                     else:
                         print(" ".join([f"File: {results['name']}",
                                         f"Expected Size: {expected_size}",
@@ -66,6 +65,7 @@ class queryOnda():
                                         ]
                                        )
                               )
+                        os.remove(local_filename)
                 elif results["downloadable"]:
                     print(" ".join([f"Granule: {results['name']}",
                                     f"Status: {results['downloadable']}"
@@ -73,7 +73,6 @@ class queryOnda():
                                    )
                           )
                     self.download_granule(self.pid)
-                    self.count -= 1
                 elif not results["downloadable"]:
                     print(" ".join([f"Granule: {results['name']}",
                                     f"Status: {results['downloadable']}"
@@ -81,6 +80,7 @@ class queryOnda():
                                    )
                           )
                     self.restore_granule()
+                    self.count += 1
             else:
                 self.request_manager()
 
@@ -97,7 +97,6 @@ class queryOnda():
         print(f"Current Time: {datetime.datetime.now()}")
         time.sleep(self.params["time_lag_in_minutes"]*60)
         print(f"Downloading {len(self.pids)} restored granules.")
-        print(len(self.filelist))
         if len(self.pids) > 0:
             with Pool(len(self.pids)) as p:
                 p.map(self.download_granule, self.pids)
@@ -109,10 +108,16 @@ class queryOnda():
                        )
               )
         print(f"Current Time: {datetime.datetime.now()}")
-        print(len(self.filelist))
         self.update_database()
         if self.params["push_to_s3"]:
             self.movetoS3()
+
+        print(" ".join([f"Current Time: {datetime.datetime.now()}",
+                        f"Next Query Time: {end_time}"
+                        ]
+                       )
+              )
+        print(len(self.filelist))
 
         while datetime.datetime.now() < end_time:
             time.sleep(60)
@@ -134,7 +139,6 @@ class queryOnda():
                 fd.write(chunk)
         download_size = os.stat(local_filename).st_size/(1024*1024)
         if download_size == expected_size:
-            self.filelist.remove(results["name"].strip(".zip"))
             self.downloaded.append(local_filename)
         else:
             print(" ".join([f"File: {results['name']}",
@@ -196,6 +200,7 @@ class queryOnda():
                   )
             s3.upload_file(dl, target_bucket, key)
             os.remove(dl)
+            self.filelist.remove(fname.strip(".zip"))
 
 
 if __name__ == "__main__":
