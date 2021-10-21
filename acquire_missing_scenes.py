@@ -47,7 +47,6 @@ class queryOnda():
                 else:
                     results = json.loads(r.content)["value"][0]
                 self.pid = results["id"]
-                print(self.pid)
                 local_filename = f"{self.local_dir}/{results['name']}"
                 if os.path.exists(local_filename):
                     expected_size = results["size"]/(1024*1024)
@@ -82,7 +81,7 @@ class queryOnda():
                             p.map(self.download_granule, self.pids)
                         self.movetoS3()
                         self.update_database()
-                        self.pids = []
+
                 elif not results["downloadable"]:
                     print(" ".join([f"Granule: {results['name']}",
                                     f"Status: {results['downloadable']}"
@@ -193,31 +192,17 @@ class queryOnda():
         with open(self.params["data_path"], "w") as f:
             f.writelines("%s\n" % file for file in self.filelist)
 
+        self.query_api()
+
     def movetoS3(self):
+        session = boto3.Session()
+        s3 = boto3.client("s3")
         aws_config = self.params["aws"]
-        session = boto3.Session()#profile_name=aws_config["aws_profile"])
-        client = session.client("sts")
-        roleArn = aws_config["upload_role_arn"]
-        roleSessionName = aws_config["upload_role_name"]
-        creds = client.assume_role(
-                                   RoleArn=roleArn,
-                                   RoleSessionName=roleSessionName
-                                   )
-        creds = creds["Credentials"]
-        s3 = boto3.client("s3",
-                          aws_access_key_id=creds["AccessKeyId"],
-                          aws_secret_access_key=creds["SecretAccessKey"],
-                          aws_session_token=creds["SessionToken"]
-                          )
         target_bucket = aws_config["target_s3_bucket"]
 
         for dl in self.downloaded:
             fname = dl.split("/")[-1]
-            data_date = datetime.datetime.strptime(fname.split("_")[2],
-                                                   "%Y%m%dT%H%M%S"
-                                                   )
-            key = f"{data_date:%m-%d-%Y}/{fname}"
-            #key = f"ondaDIAS_2015_2016/{fname}"
+            key = fname
             print(" ".join([f"local file: {dl} is being uploaded to:"
                             f" {target_bucket}/{key}"
                             ]
