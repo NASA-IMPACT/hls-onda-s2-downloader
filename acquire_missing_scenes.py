@@ -23,14 +23,15 @@ class queryOnda():
 
     def get_filelist(self):
         with open(self.params["data_path"], "r") as f:
-            self.filelist = sorted([x.strip("\n") for x in f.readlines()])
+            self.filelist = sorted(['_'.join(x.strip("\n").split('_')[0:6])+"*" for x in f.readlines()])
+            print(self.filelist)
             self.filelist = Manager().list(self.filelist)
 
     def configure_url(self):
         base_url = "https://catalogue.onda-dias.eu/dias-catalogue/Products"
         self.order_url = base_url + '({})'
         if "MSIL1C" in self.filelist[0]:
-            self.granule_url = base_url + '?$search="name:{}.zip"'
+            self.granule_url = base_url + '?$search="name:{}"'
         else:
             self.granule_url = self.order_url
 
@@ -42,6 +43,7 @@ class queryOnda():
             if self.count < self.params["max_requests"]:
                 query_url = self.granule_url.format(file)
                 r = requests.get(query_url)
+                print(query_url)
                 results = json.loads(r.content)["value"][0]
                 self.pid = results["id"]
                 local_filename = f"{self.local_dir}/{results['name']}"
