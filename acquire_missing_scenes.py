@@ -11,7 +11,7 @@ from multiprocessing import Manager, Pool
 class queryOnda():
 
     def __init__(self):
-        with open("query_params_old.json", "r") as f:
+        with open("query_params.json", "r") as f:
             self.params = json.load(f)
         username = self.params["auth"]["username"]
         password = self.params["auth"]["password"]
@@ -19,20 +19,24 @@ class queryOnda():
         self.local_dir = self.params['output_directory']
         self.get_filelist()
         self.configure_url()
-        self.query_api()
+        for key in self.files:
+            print(f"Downloading {len(self.files[key])} files for {key}")
+            self.filelist = self.files[key]
+            while len(self.files[key]) > 0:
+                self.query_api()
+                self.files[key] = self.filelist
+                self.update_database()
+                self.query_api()
+
 
     def get_filelist(self):
-        with open(self.params["data_path"], "r") as f:
-            self.filelist = sorted([x.strip("\n") for x in f.readlines()])
-            self.filelist = Manager().list(self.filelist)
+        with open(self.params["data_path"],"r") as f:
+            self.files = json.load(f)
 
     def configure_url(self):
         base_url = "https://catalogue.onda-dias.eu/dias-catalogue/Products"
         self.order_url = base_url + '({})'
-        if "MSIL1C" in self.filelist[0]:
-            self.granule_url = base_url + '?$search="name:{}.zip"'
-        else:
-            self.granule_url = self.order_url
+        self.granule_url = base_url + '?$search="name:{}.zip"'
 
     def query_api(self):
         self.count = 0
@@ -77,22 +81,10 @@ class queryOnda():
                     self.pids.append(self.pid)
                     if len(self.pids) == 50:
                         self.downloaded = Manager().list()
-                        with Pool(len(self.pids)) as p:
-                            p.map(self.download_granule, self.pids)
-                        self.movetoS3()
+                        self.request_manager()
                         self.update_database()
+                        self.pids = []
 
-                elif not results["downloadable"]:
-                    print(" ".join([f"Granule: {results['name']}",
-                                    f"Status: {results['downloadable']}"
-                                    ]
-                                   )
-                          )
-                    status = self.restore_granule()
-                    if status == "Error":
-                        self.count = 20
-                    else:
-                        self.count += 1
                 if file == self.filelist[-1]:
                     self.request_manager()
             else:
@@ -100,44 +92,13 @@ class queryOnda():
 
     def request_manager(self):
         now = datetime.datetime.now()
-        end_time = now + datetime.timedelta(minutes=60)
-        print(" ".join([f"{self.params['max_requests']}",
-                        "requests have been submitted. Waiting",
-                        f"{self.params['time_lag_in_minutes']}",
-                        "Minutes to download restored scenes"
-                        ]
-                       )
-              )
-        print(f"Current Time: {datetime.datetime.now()}")
-        time.sleep(self.params["time_lag_in_minutes"]*60)
         print(f"Downloading {len(self.pids)} restored granules.")
         print(len(self.filelist))
         if len(self.pids) > 0:
             with Pool(len(self.pids)) as p:
                 p.map(self.download_granule, self.pids)
-
-        print(" ".join(["Successfully restored all of the scenes.",
-                        f"Waiting until {end_time}",
-                        "to query the API again"
-                        ]
-                       )
-              )
-        print(f"Current Time: {datetime.datetime.now()}")
-        print(len(self.filelist))
         if self.params["push_to_s3"]:
             self.movetoS3()
-
-        print(" ".join([f"Current Time: {datetime.datetime.now()}",
-                        f"Next Query Time: {end_time}"
-                        ]
-                        )
-              )
-        self.update_database()
-        print(len(self.filelist))
-        while datetime.datetime.now() < end_time:
-            time.sleep(60)
-        else:
-            self.query_api()
 
     def download_granule(self, pid):
         data_url = self.order_url.format(pid) + "/$value"
@@ -166,33 +127,8 @@ class queryOnda():
             os.remove(local_filename)
         print(f"Finished Download of {results['name']}: {datetime.datetime.now()}")
 
-    def restore_granule(self):
-        self.pids.append(self.pid)
-        restore_url = self.order_url.format(self.pid) + "/Ens.Order"
-        r = requests.post(restore_url,
-                          auth=self.auth
-                          )
-        try:
-            results = json.loads(r.content)
-            return " ".join([
-                            f"Status: {results['Status']}",
-                            f"Message: {results['StatusMessage']}",
-                            f"Estimated Restored Time: {results['EstimatedTime']}"
-                            ]
-                           )
-        except json.decoder.JSONDecodeError:
-            print(r.content)
-            return "Error"
-        except:
-            print("Something happened. Exiting.")
-            exit()
-
-
-    def update_database(self):
         with open(self.params["data_path"], "w") as f:
-            f.writelines("%s\n" % file for file in self.filelist)
-
-        self.query_api()
+            json.dump(self.files,f)
 
     def movetoS3(self):
         session = boto3.Session()
@@ -213,6 +149,10 @@ class queryOnda():
             os.remove(dl)
             self.filelist.remove(fname.strip(".zip"))
 
+
+    def update_database(self):
+        with open(self.params["data_path"],"w") as f:
+            json.dump(self.files,f)
 
 if __name__ == "__main__":
     queryOnda()
